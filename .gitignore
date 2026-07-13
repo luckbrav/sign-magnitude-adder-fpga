@@ -1,0 +1,27 @@
+# Editor / language-server caches
+.lsp/
+.clj-kondo/
+.vscode/
+
+# GHDL simulation artifacts
+*.o
+*.cf
+*.vcd
+*.ghw
+work-obj*.cf
+
+# Quartus build output
+db/
+incremental_db/
+output_files/
+simulation/
+*.qws
+*.rpt
+*.summary
+*.done
+*.pin
+*.pof
+*.sof
+
+# macOS
+.DS_Store
