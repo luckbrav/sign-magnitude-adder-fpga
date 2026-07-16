@@ -82,23 +82,49 @@ A second example showing overflow:
 Same sign, so the magnitudes are added: `200 + 100 = 300`, which does not fit in 8 bits. The result magnitude wraps to `2C` (HEX) = `44` (DEC) and `LEDR9` (overflow) turns on.
 
 ## ​🧪​ Simulation Micro-Tutorial (GHDL + GTKWave):
-The `sign_mag_add_tb.vhd` testbench exercises the core adder for every sign combination, the "−0" normalization case and the overflow case. To reproduce the simulation:
+
+The whole simulation suite runs with a single command from the project root:
 
 ```bash
-# 1. Analyze the source files (VHDL-2008)
-ghdl -a --std=08 src/hex_to_sseg.vhd src/sign_mag_add.vhd src/sign_mag_add_tb.vhd
-
-# 2. Elaborate the testbench
-ghdl -e --std=08 sign_mag_add_tb
-
-# 3. Run it and dump the waveform
-ghdl -r --std=08 sign_mag_add_tb --vcd=sign_mag_add.vcd --stop-time=200ns
-
-# 4. Open the waveform
-gtkwave sign_mag_add.vcd
+./sim/run_sim.sh            # add --wave to open the waveforms in GTKWave
 ```
 
-In GTKWave, add the `a`, `b`, `sum` and `ovf` signals to the waveform to observe each test case. The testbench also self-checks the results with `assert` statements, so any mismatch is reported on the console.
+It runs four testbenches and a synthesis check, writing the waveforms to `build/`:
+
+| Testbench | What it verifies | Result |
+|---|---|---|
+| `sign_mag_add_orig_tb` | The **original book adder** (Listing 3.14, N=4), unmodified | 6/6 ✅ |
+| `sign_mag_add_tb` | The **adapted core** (N=9, overflow + zero normalization) | 7/7 ✅ |
+| `hex_to_sseg_tb` | The 7-seg decoder against the DE10-Lite pin mapping | 16/16 ✅ |
+| `sign_mag_add_top_tb` | The **complete top-level**: switches, KEY0 load, KEY1 reset, HEX displays and LEDs | 6/6 ✅ |
+
+All testbenches self-check with `assert`, so **any line containing `(assertion error)` means a failure**; a clean run prints only `report note` lines. The `metavalue detected` warnings at time 0 are expected (they occur before the stimuli reach the inputs) and are filtered by the script.
+
+To run a single simulation manually — for example the original book code:
+
+```bash
+ghdl -a --std=08 --workdir=build/orig Projeto-VHDL/sign_mag_add.vhd sim/sign_mag_add_orig_tb.vhd
+ghdl -e --std=08 --workdir=build/orig sign_mag_add_orig_tb
+ghdl -r --std=08 --workdir=build/orig sign_mag_add_orig_tb --vcd=orig.vcd --stop-time=200ns
+gtkwave orig.vcd
+```
+
+> **Note on work libraries:** the original adder and the adapted one declare the *same* entity name (`sign_mag_add`), so each simulation must use its own `--workdir`, otherwise one overwrites the other.
+
+In GTKWave, add `a`, `b`, `sum` (and `ovf`, in the adapted version) to observe each test case.
+
+## ​🔬​ Comparative Analysis (original × adapted):
+
+Both versions implement the same algorithm from Chu, and the four sign combinations produce identical results. Simulation revealed **two limitations of the original code**, both reproduced in `sign_mag_add_orig_tb`:
+
+| Case | Original (Listing 3.14) | Adapted (`src/`) |
+|---|---|---|
+| `(+5) + (−5)` | `1000` = **−0**: the sort takes the `else` branch when the magnitudes are equal, so it keeps `sign_b` | `+0`: a zero result is normalized to `+` |
+| `(+7) + (+7)` | `0110` = **+6**: 14 does not fit in 3 bits and is truncated **silently** | magnitude wraps *and* raises `ovf` → `LEDR9` |
+
+A third difference is in the **7-segment decoder**. The book's `hex_to_sseg` (Listing 3.12) puts segment `a` in the *most* significant bit (`sseg(6)=a … sseg(0)=g`), but on the DE10-Lite the pin order is the opposite (`HEX0[0]=a … HEX0[6]=g`, see `de10_lite.qsf`). The decoder in `src/` is therefore **bit-reversed** relative to the book's. `hex_to_sseg_tb` proves this is required: the adapted decoder passes 16/16 digits, while the book's original fails 14/16 on this board (only `8` and `A` pass, since their patterns happen to be palindromes).
+
+Finally, the book's testing circuit (`sm_add_test.vhd` + `disp_mux.vhd`) time-multiplexes four displays and uses the pushbuttons to select which value to show, because the target DE1 board shares the segment pins between displays. The DE10-Lite has **six independent, non-multiplexed HEX displays**, so `disp_mux` is unnecessary: the top-level drives A, B and the result simultaneously and reuses the pushbuttons for loading and reset instead — which also makes the operands visible at the same time as the result.
 
 ## ​🧠​ Usage Tutorial: DE10-Lite + Quartus Prime Board:
 1. Open Quartus Prime (Lite) version 20.1 or newer.

@@ -4,6 +4,7 @@
 .vscode/
 
 # GHDL simulation artifacts
+build/
 *.o
 *.cf
 *.vcd
