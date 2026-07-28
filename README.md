@@ -107,7 +107,9 @@ It runs four testbenches and a synthesis check, writing the waveforms to `build/
 | `sign_mag_add_orig_tb` | The **original book adder** (Listing 3.14, N=4), unmodified | 6/6 ✅ |
 | `sign_mag_add_tb` | The **adapted core** (N=9, overflow + zero normalization) | 7/7 ✅ |
 | `hex_to_sseg_tb` | The 7-seg decoder against the DE10-Lite pin mapping | 16/16 ✅ |
-| `sign_mag_add_top_tb` | The **complete top-level**: simultaneous SW inputs (N=4), sign/magnitude HEX pairs, `Er` on overflow, DP off | ✅ |
+| `sign_mag_add_top_tb` | The **complete top-level**: simultaneous SW inputs (N=4), sign/magnitude HEX pairs, `Er` on overflow, DP off | not run yet ⚠️ |
+
+> The first three results above come from an earlier run. `sign_mag_add_top_tb` was rewritten for the current HEX layout and has not been executed since — run `./sim/run_sim.sh` on a machine with GHDL to confirm it (and the `ghdl --synth` check) before trusting the table.
 
 All testbenches self-check with `assert`, so **any line containing `(assertion error)` means a failure**; a clean run prints only `report note` lines. The `metavalue detected` warnings at time 0 are expected (they occur before the stimuli reach the inputs) and are filtered by the script.
 

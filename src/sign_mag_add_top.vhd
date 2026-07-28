@@ -53,6 +53,9 @@ architecture arch of sign_mag_add_top is
 
    signal op_a, op_b, result : std_logic_vector(N-1 downto 0);
    signal ovf                : std_logic;
+   signal mag_a_nib          : std_logic_vector(3 downto 0);
+   signal mag_b_nib          : std_logic_vector(3 downto 0);
+   signal mag_r_nib          : std_logic_vector(3 downto 0);
    signal mag_a_sseg         : std_logic_vector(7 downto 0);
    signal mag_b_sseg         : std_logic_vector(7 downto 0);
    signal mag_r_sseg         : std_logic_vector(7 downto 0);
@@ -68,13 +71,20 @@ begin
       port map (a => op_a, b => op_b, sum => result, ovf => ovf);
 
    -- Magnitudes: zero-extend the 3-bit field to a nibble for hex_to_sseg.
+   -- These go through signals because VHDL-93 (the Quartus default) only
+   -- accepts a static signal name or a globally static expression as the
+   -- actual of a port; an inline concatenation would need VHDL-2008.
+   mag_a_nib <= '0' & op_a(2 downto 0);
+   mag_b_nib <= '0' & op_b(2 downto 0);
+   mag_r_nib <= '0' & result(2 downto 0);
+
    -- dp = '1' keeps the decimal point OFF (active-low on the DE10-Lite).
    h_a: entity work.hex_to_sseg
-      port map (hex => ('0' & op_a(2 downto 0)), dp => '1', sseg => mag_a_sseg);
+      port map (hex => mag_a_nib, dp => '1', sseg => mag_a_sseg);
    h_b: entity work.hex_to_sseg
-      port map (hex => ('0' & op_b(2 downto 0)), dp => '1', sseg => mag_b_sseg);
+      port map (hex => mag_b_nib, dp => '1', sseg => mag_b_sseg);
    h_r: entity work.hex_to_sseg
-      port map (hex => ('0' & result(2 downto 0)), dp => '1', sseg => mag_r_sseg);
+      port map (hex => mag_r_nib, dp => '1', sseg => mag_r_sseg);
 
    -- Operand A on the left pair
    HEX5 <= SSEG_MINUS when op_a(3) = '1' else SSEG_BLANK;
