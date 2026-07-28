@@ -1,12 +1,10 @@
 -- Testbench do top-level adaptado para a DE10-Lite (src/sign_mag_add_top.vhd).
 --
--- Verifica o circuito completo, de ponta a ponta, exatamente como ele sera
--- usado na placa: carga dos operandos pelas chaves SW com o pulso do KEY0,
--- reset pelo KEY1 e leitura do resultado nos displays HEX e nos LEDs LEDR.
---
--- Os displays sao conferidos decodificando o padrao de 7 segmentos de volta
--- para o valor hexadecimal, de modo que o teste valida a cadeia inteira
--- (registradores -> somador -> decodificador -> pinos de saida).
+-- Verifica o circuito completo com a interface do laboratorio:
+--   * entrada simultanea A=SW(3..0), B=SW(7..4)  (N=4)
+--   * 3 digitos de magnitude + 3 digitos de sinal
+--   * resultado no par direito (HEX1/HEX0), com "Er" em overflow
+--   * ponto decimal apagado em todos os digitos
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -15,18 +13,24 @@ entity sign_mag_add_top_tb is
 end sign_mag_add_top_tb;
 
 architecture sim of sign_mag_add_top_tb is
-   constant CLK_PERIOD : time := 20 ns;   -- 50 MHz, igual ao MAX10_CLK1_50
+   constant CLK_PERIOD : time := 20 ns;
 
    signal clk  : std_logic := '0';
    signal SW   : std_logic_vector(9 downto 0) := (others => '0');
-   signal KEY  : std_logic_vector(1 downto 0) := "11";  -- botoes ativos em nivel baixo
+   signal KEY  : std_logic_vector(1 downto 0) := "11";
    signal LEDR : std_logic_vector(9 downto 0);
    signal HEX0, HEX1, HEX2, HEX3, HEX4, HEX5 : std_logic_vector(7 downto 0);
 
    signal running : boolean := true;
 
-   -- Decodifica o padrao de 7 segmentos da DE10-Lite de volta para o nibble.
-   -- E a operacao inversa de hex_to_sseg e so aceita os 16 padroes validos.
+   -- Padroes de 7 segmentos da DE10-Lite (ativos em nivel baixo, DP=bit7).
+   constant SSEG_BLANK : std_logic_vector(7 downto 0) := "11111111";
+   constant SSEG_MINUS : std_logic_vector(7 downto 0) := "10111111";
+   constant SSEG_E     : std_logic_vector(7 downto 0) := "10000110";
+   constant SSEG_R     : std_logic_vector(7 downto 0) := "10101111";
+
+   -- Decodifica o padrao de 7 segmentos de volta para o nibble (0..15),
+   -- ou -1 se o padrao nao for um digito hexadecimal reconhecido.
    function sseg_to_hex(s : std_logic_vector(7 downto 0)) return integer is
       constant TABLE : std_logic_vector(0 to 15*7+6) :=
          "1000000" & "1111001" & "0100100" & "0110000" &
@@ -39,13 +43,13 @@ architecture sim of sign_mag_add_top_tb is
             return i;
          end if;
       end loop;
-      return -1;  -- padrao nao reconhecido
+      return -1;
    end function;
 
-   -- Le os dois displays de um par como um byte (ex.: HEX1 HEX0 -> |A|).
-   function pair_value(hi, lo : std_logic_vector(7 downto 0)) return integer is
+   -- Monta um operando sign-magnitude de 4 bits.
+   function smag(sign : std_logic; mag : integer) return std_logic_vector is
    begin
-      return sseg_to_hex(hi) * 16 + sseg_to_hex(lo);
+      return sign & std_logic_vector(to_unsigned(mag, 3));
    end function;
 begin
    clk <= (not clk) after CLK_PERIOD/2 when running else '0';
@@ -58,84 +62,112 @@ begin
          HEX3 => HEX3, HEX4 => HEX4, HEX5 => HEX5);
 
    stim: process
-      -- Carrega um operando pelas chaves, imitando o usuario: posiciona SW,
-      -- aperta KEY0 ('0'), solta ('1') -- a carga ocorre na borda de subida.
-      procedure load(constant sel : in std_logic;   -- '0' = operando A, '1' = B
-                     constant sign : in std_logic;
-                     constant mag  : in integer) is
+      -- Aplica A e B de uma vez (entrada simultanea) e espera estabilizar.
+      procedure apply(constant a_sign : in std_logic;
+                      constant a_mag  : in integer;
+                      constant b_sign : in std_logic;
+                      constant b_mag  : in integer) is
       begin
-         SW(9) <= sel;
-         SW(8) <= sign;
-         SW(7 downto 0) <= std_logic_vector(to_unsigned(mag, 8));
+         SW(3 downto 0) <= smag(a_sign, a_mag);
+         SW(7 downto 4) <= smag(b_sign, b_mag);
+         SW(9 downto 8) <= "00";
          wait for CLK_PERIOD*2;
-         KEY(0) <= '0';                 -- botao pressionado
-         wait for CLK_PERIOD*4;
-         KEY(0) <= '1';                 -- botao solto -> pulso de carga
-         wait for CLK_PERIOD*4;
       end procedure;
 
-      -- Confere o resultado lido nos displays/LEDs da placa.
-      procedure check_result(constant name  : in string;
-                             constant emag  : in integer;
-                             constant esign : in std_logic;
-                             constant eovf  : in std_logic) is
+      -- Confere magnitude + sinal de um par (sign_hex, mag_hex).
+      procedure check_pair(constant name     : in string;
+                           constant sign_hex : in std_logic_vector(7 downto 0);
+                           constant mag_hex  : in std_logic_vector(7 downto 0);
+                           constant esign    : in std_logic;
+                           constant emag     : in integer) is
       begin
-         assert pair_value(HEX5, HEX4) = emag
-            report "FAIL " & name & ": magnitude no display HEX5:HEX4 = " &
-                   integer'image(pair_value(HEX5, HEX4)) &
+         if esign = '1' then
+            assert sign_hex = SSEG_MINUS
+               report "FAIL " & name & ": sinal negativo ausente no display"
+               severity error;
+         else
+            assert sign_hex = SSEG_BLANK
+               report "FAIL " & name & ": display de sinal deveria estar apagado"
+               severity error;
+         end if;
+         assert sseg_to_hex(mag_hex) = emag
+            report "FAIL " & name & ": magnitude = " &
+                   integer'image(sseg_to_hex(mag_hex)) &
                    ", esperado " & integer'image(emag)
             severity error;
-         assert LEDR(2) = esign
-            report "FAIL " & name & ": sinal em LEDR2 incorreto" severity error;
-         assert LEDR(9) = eovf
-            report "FAIL " & name & ": overflow em LEDR9 incorreto" severity error;
+         -- Ponto decimal deve estar apagado (ativo-baixo => '1').
+         assert mag_hex(7) = '1' and sign_hex(7) = '1'
+            report "FAIL " & name & ": ponto decimal deveria estar apagado"
+            severity error;
       end procedure;
    begin
-      -- ---- reset pelo KEY1: os dois operandos devem zerar ----------------
-      KEY(1) <= '0';                    -- pressiona reset
-      wait for CLK_PERIOD*4;
-      KEY(1) <= '1';                    -- solta
-      wait for CLK_PERIOD*4;
-      assert pair_value(HEX1, HEX0) = 0 and pair_value(HEX3, HEX2) = 0
-         report "FAIL reset: displays dos operandos deveriam mostrar 00"
+      -- ---- zeros iniciais ------------------------------------------------
+      apply('0', 0, '0', 0);
+      check_pair("A=0",  HEX5, HEX4, '0', 0);
+      check_pair("B=0",  HEX3, HEX2, '0', 0);
+      check_pair("sum",  HEX1, HEX0, '0', 0);
+      assert LEDR(9) = '0' report "FAIL: overflow indevido em 0+0" severity error;
+      report "Zeros: displays em branco/0, sem overflow." severity note;
+
+      -- ---- (+5) + (-3) = +2  (exemplo do livro / README) ----------------
+      apply('0', 5, '1', 3);
+      check_pair("A=+5", HEX5, HEX4, '0', 5);
+      check_pair("B=-3", HEX3, HEX2, '1', 3);
+      check_pair("sum=+2", HEX1, HEX0, '0', 2);
+      assert LEDR(0) = '0' and LEDR(1) = '1' and LEDR(2) = '0' and LEDR(9) = '0'
+         report "FAIL (+5)+(-3): LEDs de sinal/overflow incorretos"
          severity error;
-      report "Reset (KEY1): operandos zerados, displays em 00." severity note;
+      report "(+5) + (-3) = +2  -> HEX0=2, HEX1 em branco (positivo)." severity note;
 
-      -- ---- (+5) + (-3) = +2  (exemplo do README) ------------------------
-      load('0', '0', 5);                -- A = +5
-      assert pair_value(HEX1, HEX0) = 5 and LEDR(0) = '0'
-         report "FAIL: operando A nao apareceu em HEX1:HEX0/LEDR0" severity error;
-      load('1', '1', 3);                -- B = -3
-      assert pair_value(HEX3, HEX2) = 3 and LEDR(1) = '1'
-         report "FAIL: operando B nao apareceu em HEX3:HEX2/LEDR1" severity error;
-      check_result("(+5)+(-3)", 2, '0', '0');
-      report "(+5) + (-3) = +2  -> HEX5:HEX4=02, LEDR2=0 (positivo)." severity note;
+      -- ---- (-5) + (+3) = -2 ---------------------------------------------
+      apply('1', 5, '0', 3);
+      check_pair("A=-5", HEX5, HEX4, '1', 5);
+      check_pair("B=+3", HEX3, HEX2, '0', 3);
+      check_pair("sum=-2", HEX1, HEX0, '1', 2);
+      assert LEDR(2) = '1' and LEDR(9) = '0'
+         report "FAIL (-5)+(+3): sinal/overflow incorretos" severity error;
+      report "(-5) + (+3) = -2  -> HEX1=menos, HEX0=2." severity note;
 
-      -- ---- (+200) + (+100): estoura 8 bits -> 44 com LEDR9 aceso --------
-      load('0', '0', 200);              -- A = +200 (0xC8)
-      load('1', '0', 100);              -- B = +100 (0x64)
-      check_result("(+200)+(+100)", 44, '0', '1');
-      report "(+200) + (+100) -> HEX5:HEX4=2C (44), LEDR9=1 (overflow)." severity note;
+      -- ---- (-4) + (-3) = -7 ---------------------------------------------
+      apply('1', 4, '1', 3);
+      check_pair("sum=-7", HEX1, HEX0, '1', 7);
+      assert LEDR(9) = '0'
+         report "FAIL (-4)+(-3): nao deveria haver overflow" severity error;
+      report "(-4) + (-3) = -7  -> dentro do intervalo." severity note;
 
-      -- ---- (-7) + (+7) = +0: sinal normalizado, LEDR2 apagado -----------
-      load('0', '1', 7);                -- A = -7
-      load('1', '0', 7);                -- B = +7
-      check_result("(-7)+(+7)", 0, '0', '0');
-      report "(-7) + (+7) = +0  -> LEDR2=0: zero normalizado como positivo." severity note;
+      -- ---- (+7) + (+1) = +8 -> overflow, display "Er" -------------------
+      apply('0', 7, '0', 1);
+      assert HEX1 = SSEG_E and HEX0 = SSEG_R
+         report "FAIL (+7)+(+1): esperado 'Er' no par direito" severity error;
+      assert LEDR(9) = '1'
+         report "FAIL (+7)+(+1): LEDR9 deveria indicar overflow" severity error;
+      report "(+7) + (+1) -> Er (acima de +7)." severity note;
 
-      -- ---- SW9 seleciona o destino: A nao muda ao carregar B ------------
-      load('0', '0', 9);                -- A = +9
-      load('1', '0', 4);                -- B = +4
-      assert pair_value(HEX1, HEX0) = 9
-         report "FAIL: carregar B alterou o operando A" severity error;
-      check_result("(+9)+(+4)", 13, '0', '0');
+      -- ---- (-7) + (-1) = -8 -> overflow, display "Er" -------------------
+      apply('1', 7, '1', 1);
+      assert HEX1 = SSEG_E and HEX0 = SSEG_R
+         report "FAIL (-7)+(-1): esperado 'Er' no par direito" severity error;
+      assert LEDR(9) = '1'
+         report "FAIL (-7)+(-1): LEDR9 deveria indicar overflow" severity error;
+      report "(-7) + (-1) -> Er (abaixo de -7)." severity note;
 
-      -- ---- KEY0 so carrega na borda: mexer nas chaves nao afeta ---------
-      SW(7 downto 0) <= x"FF";          -- muda as chaves sem apertar o botao
-      wait for CLK_PERIOD*4;
-      assert pair_value(HEX3, HEX2) = 4
-         report "FAIL: operando B mudou sem o pulso de KEY0" severity error;
-      report "Chaves alteradas sem KEY0: operandos preservados." severity note;
+      -- ---- (-7) + (+7) = +0: zero normalizado sem sinal -----------------
+      apply('1', 7, '0', 7);
+      check_pair("sum=+0", HEX1, HEX0, '0', 0);
+      assert LEDR(2) = '0' and LEDR(9) = '0'
+         report "FAIL (-7)+(+7): zero deveria ser positivo, sem overflow"
+         severity error;
+      report "(-7) + (+7) = +0  -> sinal normalizado." severity note;
+
+      -- ---- Entrada simultanea: mudar A e B juntos atualiza na hora ------
+      apply('0', 2, '0', 3);            -- +2 + +3 = +5
+      check_pair("sum=+5", HEX1, HEX0, '0', 5);
+      SW(3 downto 0) <= smag('0', 6);   -- muda so A para +6 -> +6 + +3 = +9 -> Er
+      wait for CLK_PERIOD*2;
+      assert HEX1 = SSEG_E and HEX0 = SSEG_R
+         report "FAIL: mudanca simultanea de A nao refletiu overflow"
+         severity error;
+      report "Entrada simultanea: A/B seguem as chaves sem KEY0/SW9." severity note;
 
       report "Testbench do TOP-LEVEL (DE10-Lite) finalizado." severity note;
       running <= false;

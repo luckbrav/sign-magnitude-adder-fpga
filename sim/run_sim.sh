@@ -58,7 +58,7 @@ run_tb core sign_mag_add_tb 200ns \
 run_tb sseg hex_to_sseg_tb 300ns \
    src/hex_to_sseg.vhd sim/hex_to_sseg_tb.vhd
 
-# 4) TOP-LEVEL completo da DE10-Lite (chaves, botoes, displays e LEDs).
+# 4) TOP-LEVEL completo da DE10-Lite (SW simultaneos N=4, sinais no HEX, Er).
 run_tb top sign_mag_add_top_tb 5us \
    src/hex_to_sseg.vhd src/sign_mag_add.vhd src/sign_mag_add_top.vhd \
    sim/sign_mag_add_top_tb.vhd
