@@ -1,7 +1,3 @@
--- Testbench for the sign-magnitude adder core (sign_mag_add).
--- It exercises the four sign combinations, the "-0" normalization case and
--- the magnitude overflow case. Run it with GHDL and inspect the waveform in
--- GTKWave (see the README for the exact commands).
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -15,13 +11,11 @@ architecture sim of sign_mag_add_tb is
    signal sum   : std_logic_vector(N-1 downto 0);
    signal ovf   : std_logic;
 
-   -- build a sign-magnitude operand from a sign bit and an integer magnitude
    function smag(sign : std_logic; mag : integer) return std_logic_vector is
    begin
       return sign & std_logic_vector(to_unsigned(mag, N-1));
    end function;
 
-   -- check the result against the expected sign / magnitude / overflow
    procedure check(constant name : in string;
                    signal   s    : in std_logic_vector(N-1 downto 0);
                    signal   o    : in std_logic;
