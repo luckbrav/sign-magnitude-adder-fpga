@@ -1,8 +1,5 @@
 # Sign-Magnitude Adder on FPGA Board
 
-## 👥​ Team:
-* Lucas Gois Carneiro Batista
-
 ## 🌐​ Overview:
 This project is based on coding an Intel FPGA board with the aim of correctly and safely implementing a simplified **sign-magnitude adder**, following the example presented in section 3.7.2 of *FPGA Prototyping by VHDL Examples* (Pong P. Chu, 2008). The circuit adds two numbers represented in sign-magnitude notation, deciding — from the signs of the operands — whether it must add or subtract the magnitudes, and it is adapted to run on the Intel/Altera/TerAsic DE10-Lite board using the switches as inputs and the LEDs and seven-segment displays as outputs.
 
